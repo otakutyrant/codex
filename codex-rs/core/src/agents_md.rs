@@ -5,7 +5,9 @@
 //! Fallback entries containing path syntax for the executor's OS are ignored
 //! before any filesystem probes use them.
 //! We include the concatenation of all files found along the path from the
-//! project root to the current working directory as follows:
+//! project root to the current working directory as follows. When rendered
+//! for the model, each discovered file retains a source label so instruction
+//! provenance is not lost during prompt assembly:
 //!
 //! 1.  Determine the project root by walking upwards from the current working
 //!     directory until a configured `project_root_markers` entry is found.
@@ -14,7 +16,7 @@
 //!     considered. An empty marker list disables parent traversal.
 //! 2.  Collect every `AGENTS.md` found from the project root down to the
 //!     current working directory (inclusive) and concatenate their contents in
-//!     that order.
+//!     that order, retaining each file's path in the model-visible rendering.
 //! 3.  We do **not** walk past the project root.
 
 use crate::config::Config;
@@ -471,6 +473,13 @@ impl LoadedAgentsMd {
     }
 
     pub(crate) fn contextual_user_fragment(&self) -> ContextUserInstructions {
+        if self.has_source_paths() {
+            return ContextUserInstructions {
+                directory: None,
+                text: self.source_labeled_text(),
+            };
+        }
+
         // One contributing project environment retains the legacy cwd wrapper. With two or more,
         // the body labels every contributing environment itself, so the outer cwd is omitted.
         let directory = if self.has_multiple_project_environments() {
@@ -483,6 +492,42 @@ impl LoadedAgentsMd {
             directory,
             text: self.text(),
         }
+    }
+
+    fn has_source_paths(&self) -> bool {
+        self.user_instructions
+            .as_ref()
+            .is_some_and(|instructions| instructions.source.is_some())
+            || self
+                .entries
+                .iter()
+                .any(|entry| matches!(entry.provenance, InstructionProvenance::Project { .. }))
+    }
+
+    fn source_labeled_text(&self) -> String {
+        let mut blocks = Vec::new();
+        if let Some(instructions) = &self.user_instructions {
+            if let Some(source) = &instructions.source {
+                blocks.push(render_source_labeled_block(
+                    &PathUri::from_abs_path(source),
+                    &instructions.text,
+                ));
+            } else {
+                blocks.push(instructions.text.clone());
+            }
+        }
+        if let Some(instructions) = &self.thread_instructions {
+            blocks.push(instructions.text.clone());
+        }
+        for entry in &self.entries {
+            match &entry.provenance {
+                InstructionProvenance::Project { source_path, .. } => {
+                    blocks.push(render_source_labeled_block(source_path, &entry.contents));
+                }
+                InstructionProvenance::Internal => blocks.push(entry.contents.clone()),
+            }
+        }
+        blocks.join("\n\n")
     }
 
     /// Returns the AGENTS.md files that supplied instruction entries.
@@ -522,6 +567,17 @@ impl LoadedAgentsMd {
                 InstructionProvenance::Internal => None,
             })
     }
+}
+
+fn render_source_labeled_block(source_path: &PathUri, contents: &str) -> String {
+    let directory = source_path
+        .parent()
+        .unwrap_or_else(|| source_path.clone())
+        .inferred_native_path_string();
+    let source = source_path.inferred_native_path_string();
+    format!(
+        "# AGENTS.md instructions for {directory} (source: {source})\n\n<INSTRUCTIONS>\n{contents}\n</INSTRUCTIONS>"
+    )
 }
 
 /// One model-visible instruction and its provenance.

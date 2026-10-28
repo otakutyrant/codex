@@ -32,6 +32,12 @@ impl ContextualUserFragment for UserInstructions {
     }
 
     fn body(&self) -> ContentItem {
+        // A source-labeled AGENTS.md fragment already contains one wrapper per
+        // file. Return it as-is instead of nesting those wrappers in another
+        // <INSTRUCTIONS> block.
+        if self.directory.is_none() && self.text.starts_with("# AGENTS.md instructions") {
+            return input_text(self.text.clone());
+        }
         let directory = self
             .directory
             .as_ref()

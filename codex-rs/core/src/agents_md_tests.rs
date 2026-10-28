@@ -412,16 +412,10 @@ fn project_provenance(path: AbsolutePathBuf, cwd: AbsolutePathBuf) -> Instructio
 
 #[test]
 fn foreign_agents_md_uses_environment_native_paths() {
-    let (cwd, rendered_cwd) = if cfg!(windows) {
-        (
-            PathUri::parse("file:///codex%20runtime").expect("POSIX cwd URI"),
-            "/codex runtime",
-        )
+    let cwd = if cfg!(windows) {
+        PathUri::parse("file:///codex%20runtime").expect("POSIX cwd URI")
     } else {
-        (
-            PathUri::parse("file:///C:/codex%20runtime").expect("Windows cwd URI"),
-            r"C:\codex runtime",
-        )
+        PathUri::parse("file:///C:/codex%20runtime").expect("Windows cwd URI")
     };
     let source_path = cwd.join("AGENTS.md").expect("AGENTS.md URI");
     let loaded = LoadedAgentsMd {
@@ -439,13 +433,7 @@ fn foreign_agents_md_uses_environment_native_paths() {
 
     assert_eq!(
         loaded.contextual_user_fragment().render().expect_text(),
-        format!(
-            "# AGENTS.md instructions for {rendered_cwd}
-
-<INSTRUCTIONS>
-remote instructions
-</INSTRUCTIONS>"
-        )
+        render_source_labeled_block(&source_path, "remote instructions")
     );
     assert_eq!(loaded.sources().collect::<Vec<_>>(), vec![source_path]);
 }
@@ -483,17 +471,11 @@ fn multi_environment_agents_md_renders_mixed_path_conventions() {
 
     assert_eq!(
         loaded.contextual_user_fragment().render().expect_text(),
-        r#"# AGENTS.md instructions
-
-<INSTRUCTIONS>
-for `posix` with root /srv/project
-
-POSIX instructions
-
-for `windows` with root C:\workspace
-
-Windows instructions
-</INSTRUCTIONS>"#
+        format!(
+            "{}\n\n{}",
+            render_source_labeled_block(&posix_source, "POSIX instructions"),
+            render_source_labeled_block(&windows_source, "Windows instructions"),
+        )
     );
     assert_eq!(
         loaded.sources().collect::<Vec<_>>(),
@@ -1171,12 +1153,30 @@ secondary doc"#,
 
     assert_eq!(loaded.environment_labeled_text(), inner);
     assert_eq!(loaded.text(), inner);
+    let global_source = PathUri::from_abs_path(
+        config
+            .user_instructions
+            .as_ref()
+            .expect("global instructions")
+            .source
+            .as_ref()
+            .expect("global instruction source"),
+    );
     let expected_fragment = format!(
-        r#"# AGENTS.md instructions
-
-<INSTRUCTIONS>
-{inner}
-</INSTRUCTIONS>"#
+        "{}\n\n{}\n\n{}\n\n{}",
+        render_source_labeled_block(&global_source, "global instructions"),
+        render_source_labeled_block(
+            &PathUri::from_abs_path(&primary.path().join("AGENTS.md").abs()),
+            "primary root doc",
+        ),
+        render_source_labeled_block(
+            &PathUri::from_abs_path(&primary_nested.join("AGENTS.md").abs()),
+            "primary nested doc",
+        ),
+        render_source_labeled_block(
+            &PathUri::from_abs_path(&secondary.path().join("AGENTS.md").abs()),
+            "secondary doc",
+        ),
     );
     assert_eq!(
         loaded.contextual_user_fragment().render().expect_text(),
@@ -1221,9 +1221,22 @@ async fn secondary_only_project_doc_uses_single_contributor_layout() {
 
     assert_eq!(loaded.legacy_text(), inner);
     assert_eq!(loaded.text(), inner);
+    let global_source = PathUri::from_abs_path(
+        config
+            .user_instructions
+            .as_ref()
+            .expect("global instructions")
+            .source
+            .as_ref()
+            .expect("global instruction source"),
+    );
     let expected_fragment = format!(
-        "# AGENTS.md instructions for {}\n\n<INSTRUCTIONS>\n{inner}\n</INSTRUCTIONS>",
-        secondary.path().display()
+        "{}\n\n{}",
+        render_source_labeled_block(&global_source, "global instructions"),
+        render_source_labeled_block(
+            &PathUri::from_abs_path(&secondary.path().join("AGENTS.md").abs()),
+            "secondary doc",
+        ),
     );
     assert_eq!(
         loaded.contextual_user_fragment().render().expect_text(),
@@ -1251,9 +1264,22 @@ async fn primary_only_project_doc_preserves_legacy_layout_with_multiple_bound_en
 
     assert_eq!(loaded.legacy_text(), inner);
     assert_eq!(loaded.text(), inner);
+    let global_source = PathUri::from_abs_path(
+        config
+            .user_instructions
+            .as_ref()
+            .expect("global instructions")
+            .source
+            .as_ref()
+            .expect("global instruction source"),
+    );
     let expected_fragment = format!(
-        "# AGENTS.md instructions for {}\n\n<INSTRUCTIONS>\n{inner}\n</INSTRUCTIONS>",
-        primary.path().display()
+        "{}\n\n{}",
+        render_source_labeled_block(&global_source, "global instructions"),
+        render_source_labeled_block(
+            &PathUri::from_abs_path(&primary.path().join("AGENTS.md").abs()),
+            "primary doc",
+        ),
     );
     assert_eq!(
         loaded.contextual_user_fragment().render().expect_text(),
